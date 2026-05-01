@@ -2,70 +2,275 @@
 <html>
 <head>
   <title>Міні світ</title>
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #1a1a2e;
+      font-family: Arial, sans-serif;
+    }
+    #gameContainer {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100vw;
+      height: 100vh;
+    }
+    canvas {
+      border: 3px solid #444;
+      background: #0f3460;
+    }
+    #info {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: #fff;
+      font-size: 14px;
+      background: rgba(0,0,0,0.7);
+      padding: 10px;
+      border-radius: 5px;
+    }
+  </style>
 </head>
-<body style="margin:0; overflow:hidden;">
+<body>
 
-<canvas id="game"></canvas>
+<div id="gameContainer">
+  <canvas id="game"></canvas>
+</div>
+<div id="info">
+  📍 Позиція: <span id="pos">5, 5</span> | Стрілки для руху
+</div>
 
 <script>
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
+const posDisplay = document.getElementById("pos");
 
-canvas.width = window.innerWidth;
-canvas.height = window.innerHeight;
+canvas.width = 1000;
+canvas.height = 750;
 
 const tileSize = 50;
-const cols = 20;
-const rows = 15;
+const cols = Math.floor(canvas.width / tileSize);
+const rows = Math.floor(canvas.height / tileSize);
 
-// карта (0-трава, 1-вода, 2-гори)
+// Шум Перліна (симуляція для більш реалістичного терену)
+function noise(x, y, seed = 0) {
+  return Math.sin(x * 12.9898 + y * 78.233 + seed) * 43758.5453 % 1;
+}
+
+function smoothNoise(x, y) {
+  let value = 0;
+  let scale = 1;
+  let maxValue = 0;
+  
+  for (let i = 0; i < 3; i++) {
+    value += noise(x / scale, y / scale) * scale;
+    maxValue += scale;
+    scale *= 0.5;
+  }
+  return value / maxValue;
+}
+
+// Генерація карти з більшою реалістичністю
 let map = [];
 for (let y = 0; y < rows; y++) {
   let row = [];
   for (let x = 0; x < cols; x++) {
-    let rand = Math.random();
-    if (rand < 0.1) row.push(1);
-    else if (rand < 0.2) row.push(2);
-    else row.push(0);
+    let n = smoothNoise(x, y);
+    let tile;
+    
+    if (n < 0.35) tile = 1;        // вода
+    else if (n < 0.45) tile = 3;   // пісок
+    else if (n < 0.65) tile = 0;   // трава
+    else if (n < 0.75) tile = 4;   // темна трава
+    else tile = 2;                 // гори
+    
+    row.push(tile);
   }
   map.push(row);
 }
 
 // герой
-let player = { x: 5, y: 5 };
+let player = { x: 5, y: 5, vx: 0, vy: 0 };
+let keys = {};
 
 // управління
 document.addEventListener("keydown", (e) => {
-  if (e.key === "ArrowUp") player.y--;
-  if (e.key === "ArrowDown") player.y++;
-  if (e.key === "ArrowLeft") player.x--;
-  if (e.key === "ArrowRight") player.x++;
-
-  // щоб не вийти за карту
-  player.x = Math.max(0, Math.min(cols - 1, player.x));
-  player.y = Math.max(0, Math.min(rows - 1, player.y));
+  keys[e.key] = true;
 });
 
-// малювання
+document.addEventListener("keyup", (e) => {
+  keys[e.key] = false;
+});
+
+// Перевірка зіткнення
+function canMoveTo(x, y) {
+  if (x < 0 || x >= cols || y < 0 || y >= rows) return false;
+  const tile = map[y][x];
+  return tile !== 1 && tile !== 2; // не вода, не гори
+}
+
+// Оновлення позиції гравця
+function updatePlayer() {
+  let newX = player.x;
+  let newY = player.y;
+  
+  if (keys["ArrowUp"]) newY--;
+  if (keys["ArrowDown"]) newY++;
+  if (keys["ArrowLeft"]) newX--;
+  if (keys["ArrowRight"]) newX++;
+  
+  if (canMoveTo(newX, newY)) {
+    player.x = newX;
+    player.y = newY;
+  }
+  
+  posDisplay.textContent = `${Math.round(player.x)}, ${Math.round(player.y)}`;
+}
+
+// Малювання плиток з деталями
+function drawTile(x, y, tile) {
+  const px = x * tileSize;
+  const py = y * tileSize;
+  
+  switch(tile) {
+    case 0: // зелена трава
+      ctx.fillStyle = "#3d8c40";
+      ctx.fillRect(px, py, tileSize, tileSize);
+      // травинки
+      ctx.strokeStyle = "#2d6c30";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 5; i++) {
+        ctx.beginPath();
+        ctx.moveTo(px + Math.random() * tileSize, py + Math.random() * tileSize);
+        ctx.lineTo(px + Math.random() * tileSize, py + Math.random() * tileSize);
+        ctx.stroke();
+      }
+      break;
+    
+    case 1: // вода
+      ctx.fillStyle = "#1e90ff";
+      ctx.fillRect(px, py, tileSize, tileSize);
+      // хвилі
+      ctx.strokeStyle = "#4eb3ff";
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath();
+        ctx.arc(px + 10 + i * 15, py + 10, 5, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      break;
+    
+    case 2: // гори
+      ctx.fillStyle = "#8b7355";
+      ctx.fillRect(px, py, tileSize, tileSize);
+      // гірський піc
+      ctx.fillStyle = "#a0827d";
+      ctx.beginPath();
+      ctx.moveTo(px + tileSize / 2, py + 5);
+      ctx.lineTo(px + tileSize, py + tileSize);
+      ctx.lineTo(px, py + tileSize);
+      ctx.fill();
+      // тінь
+      ctx.fillStyle = "rgba(0,0,0,0.2)";
+      ctx.fillRect(px, py + tileSize * 0.7, tileSize, tileSize * 0.3);
+      break;
+    
+    case 3: // пісок
+      ctx.fillStyle = "#daa520";
+      ctx.fillRect(px, py, tileSize, tileSize);
+      // зерна піску
+      ctx.fillStyle = "#d4a520";
+      for (let i = 0; i < 10; i++) {
+        ctx.fillRect(
+          px + Math.random() * tileSize,
+          py + Math.random() * tileSize,
+          2, 2
+        );
+      }
+      break;
+    
+    case 4: // темна трава (ліс)
+      ctx.fillStyle = "#2d5a2d";
+      ctx.fillRect(px, py, tileSize, tileSize);
+      // дерева
+      ctx.fillStyle = "#8b4513";
+      ctx.fillRect(px + 15, py + 10, 8, 20);
+      ctx.fillStyle = "#228b22";
+      ctx.beginPath();
+      ctx.arc(px + 19, py + 8, 10, 0, Math.PI * 2);
+      ctx.fill();
+      break;
+  }
+  
+  // Границя плитки
+  ctx.strokeStyle = "rgba(0,0,0,0.1)";
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(px, py, tileSize, tileSize);
+}
+
+// Малювання гравця
+function drawPlayer() {
+  const px = player.x * tileSize + tileSize / 2;
+  const py = player.y * tileSize + tileSize / 2;
+  
+  // Голова
+  ctx.fillStyle = "#f4a460";
+  ctx.beginPath();
+  ctx.arc(px, py - 8, 8, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Очі
+  ctx.fillStyle = "#000";
+  ctx.beginPath();
+  ctx.arc(px - 3, py - 10, 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(px + 3, py - 10, 2, 0, Math.PI * 2);
+  ctx.fill();
+  
+  // Тіло
+  ctx.fillStyle = "#ff6b6b";
+  ctx.fillRect(px - 6, py, 12, 14);
+  
+  // Руки
+  ctx.fillStyle = "#f4a460";
+  ctx.fillRect(px - 10, py + 2, 4, 10);
+  ctx.fillRect(px + 6, py + 2, 4, 10);
+  
+  // Ноги
+  ctx.fillStyle = "#333";
+  ctx.fillRect(px - 4, py + 14, 3, 8);
+  ctx.fillRect(px + 1, py + 14, 3, 8);
+  
+  // Підсвітка гравця
+  ctx.strokeStyle = "rgba(255, 215, 0, 0.5)";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(
+    player.x * tileSize + 2,
+    player.y * tileSize + 2,
+    tileSize - 4,
+    tileSize - 4
+  );
+}
+
+// Основний цикл малювання
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-
+  
+  // Малювання карти
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
-
-      // різні біоми
-      if (map[y][x] === 0) ctx.fillStyle = "green"; // трава
-      if (map[y][x] === 1) ctx.fillStyle = "blue";  // вода
-      if (map[y][x] === 2) ctx.fillStyle = "gray";  // гори
-
-      ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
+      drawTile(x, y, map[y][x]);
     }
   }
-
-  // герой
-  ctx.fillStyle = "red";
-  ctx.fillRect(player.x * tileSize, player.y * tileSize, tileSize, tileSize);
-
+  
+  // Оновлення гравця
+  updatePlayer();
+  
+  // Малювання гравця
+  drawPlayer();
+  
   requestAnimationFrame(draw);
 }
 
